@@ -15,7 +15,7 @@
 #define WIFI_SSID       "TEST_SSID"
 #define WIFI_PASSWORD   "TEST_PASSWORD"
 #define SERVER_IP       "192.168.1.100"
-#define SERVER_PORT     "8080"
+#define SERVER_PORT     "8296"
 #define REFRESH_INTERVAL_MIN 15
 #endif
 
@@ -217,6 +217,10 @@ int main() {
     printf("Initializing e-paper GPIO/SPI...\n");
     DEV_Module_Init();
 
+    // Put display to sleep immediately to protect it from burnout if boot/wifi fails
+    EPD_2IN9_V2_Init();
+    EPD_2IN9_V2_Sleep();
+
     // Initialize Wi-Fi
     printf("Initializing CYW43 Wi-Fi chip...\n");
     if (cyw43_arch_init()) {
@@ -243,6 +247,7 @@ int main() {
                 
                 // Wake up screen, clear, render buffer, sleep
                 EPD_2IN9_V2_Init();
+                EPD_2IN9_V2_Clear();
                 EPD_2IN9_V2_Display(client.buffer);
                 EPD_2IN9_V2_Sleep();
                 

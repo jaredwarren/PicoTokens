@@ -7,7 +7,7 @@
 
 // Go Server Settings
 #define SERVER_IP       "192.168.1.XX"  // Local IP of your Mac running the Go server
-#define SERVER_PORT     "8080"           // Port the Go server is listening on
+#define SERVER_PORT     "8296"           // Port the Go server is listening on
 
 // Refresh Interval
 #define REFRESH_INTERVAL_MIN   15       // How often to update the display (in minutes)

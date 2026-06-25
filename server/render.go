@@ -5,7 +5,8 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"io/ioutil"
+	"os"
+
 	"math"
 	"time"
 
@@ -16,10 +17,12 @@ import (
 
 // Stats holds the daily usage metrics for the AI providers
 type Stats struct {
-	OpenAICost        float64
-	OpenAIInputToken  int64
-	OpenAIOutputToken int64
+	GeminiCost        float64
+	GeminiWeeklyCost  float64
+	GeminiInputToken  int64
+	GeminiOutputToken int64
 	ClaudeCost        float64
+	ClaudeWeeklyCost  float64
 	ClaudeInputToken  int64
 	ClaudeOutputToken int64
 	LastUpdated       time.Time
@@ -34,11 +37,11 @@ type Renderer struct {
 
 // NewRenderer loads fonts and initializes font faces.
 func NewRenderer(regPath, boldPath string) (*Renderer, error) {
-	regBytes, err := ioutil.ReadFile(regPath)
+	regBytes, err := os.ReadFile(regPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read regular font: %w", err)
 	}
-	boldBytes, err := ioutil.ReadFile(boldPath)
+	boldBytes, err := os.ReadFile(boldPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bold font: %w", err)
 	}
@@ -96,66 +99,36 @@ func (r *Renderer) DrawDashboard(s Stats, dailyBudget float64) image.Image {
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
 
 	// 2. Draw Header
-	r.drawText(img, "🤖 AI TOKENS", 10, 16, r.fontBold, color.White)
+	r.drawRobotIcon(img, 10, 6, color.White)
+	r.drawText(img, "AI TOKENS", 27, 16, r.fontBold, color.White)
 	syncTime := fmt.Sprintf("SYNC: %s", s.LastUpdated.Format("15:04"))
 	r.drawTextRight(img, syncTime, 286, 16, r.fontRegular, color.White)
 
 	// Header line
 	r.drawLine(img, 10, 22, 286, 22, color.White)
 
-	// 3. OpenAI Card (Left)
-	r.drawText(img, "OPENAI", 15, 36, r.fontBold, color.White)
-	openAICostStr := fmt.Sprintf("$%.2f", s.OpenAICost)
-	r.drawText(img, openAICostStr, 15, 60, r.fontLarge, color.White)
-	
-	inTextOpenAI := fmt.Sprintf("In:  %s", formatTokens(s.OpenAIInputToken))
-	outTextOpenAI := fmt.Sprintf("Out: %s", formatTokens(s.OpenAIOutputToken))
-	r.drawText(img, inTextOpenAI, 15, 76, r.fontRegular, color.White)
-	r.drawText(img, outTextOpenAI, 15, 88, r.fontRegular, color.White)
+	// 3. Gemini Card (Left)
+	r.drawText(img, "GEMINI", 15, 40, r.fontBold, color.White)
+
+	r.drawProgressBar(img, "SES", s.GeminiCost, dailyBudget, 15, 56, 85)
+	r.drawProgressBar(img, "WK", s.GeminiWeeklyCost, dailyBudget*7.0, 15, 78, 85)
+
+	inTextGemini := fmt.Sprintf("In:%s Out:%s", formatTokens(s.GeminiInputToken), formatTokens(s.GeminiOutputToken))
+	r.drawText(img, inTextGemini, 15, 106, r.fontRegular, color.White)
 
 	// 4. Middle Divider (Dotted/Dashed effect)
-	for y := 28; y < 96; y += 4 {
+	for y := 28; y < 116; y += 4 {
 		img.Set(148, y, color.White)
 	}
 
 	// 5. Anthropic/Claude Card (Right)
-	r.drawText(img, "CLAUDE", 160, 36, r.fontBold, color.White)
-	claudeCostStr := fmt.Sprintf("$%.2f", s.ClaudeCost)
-	r.drawText(img, claudeCostStr, 160, 60, r.fontLarge, color.White)
+	r.drawText(img, "CLAUDE", 160, 40, r.fontBold, color.White)
 
-	inTextClaude := fmt.Sprintf("In:  %s", formatTokens(s.ClaudeInputToken))
-	outTextClaude := fmt.Sprintf("Out: %s", formatTokens(s.ClaudeOutputToken))
-	r.drawText(img, inTextClaude, 160, 76, r.fontRegular, color.White)
-	r.drawText(img, outTextClaude, 160, 88, r.fontRegular, color.White)
+	r.drawProgressBar(img, "SES", s.ClaudeCost, dailyBudget, 160, 56, 85)
+	r.drawProgressBar(img, "WK", s.ClaudeWeeklyCost, dailyBudget*7.0, 160, 78, 85)
 
-	// 6. Footer (Progress Bar & Combined Cost)
-	r.drawLine(img, 10, 98, 286, 98, color.White)
-
-	totalCost := s.OpenAICost + s.ClaudeCost
-	budgetInfo := fmt.Sprintf("SPEND: $%.2f / $%.2f", totalCost, dailyBudget)
-	r.drawText(img, budgetInfo, 10, 112, r.fontRegular, color.White)
-
-	// Progress bar container (x: 150 to 286, y: 104 to 110)
-	barXStart := 160
-	barXEnd := 286
-	barYStart := 104
-	barYEnd := 110
-	barWidth := barXEnd - barXStart
-
-	// Draw outer bar outline
-	r.drawRect(img, barXStart, barYStart, barXEnd, barYEnd, color.White)
-
-	// Fill progress bar according to spend ratio
-	ratio := totalCost / dailyBudget
-	if ratio > 1.0 {
-		ratio = 1.0
-	} else if ratio < 0.0 {
-		ratio = 0.0
-	}
-	fillWidth := int(math.Round(ratio * float64(barWidth-4)))
-	if fillWidth > 0 {
-		r.fillRect(img, barXStart+2, barYStart+2, barXStart+2+fillWidth, barYEnd-2, color.White)
-	}
+	inTextClaude := fmt.Sprintf("In:%s Out:%s", formatTokens(s.ClaudeInputToken), formatTokens(s.ClaudeOutputToken))
+	r.drawText(img, inTextClaude, 160, 106, r.fontRegular, color.White)
 
 	return img
 }
@@ -163,7 +136,7 @@ func (r *Renderer) DrawDashboard(s Stats, dailyBudget float64) image.Image {
 // Rotate90CW rotates a 296x128 image 90 degrees clockwise to 128x296.
 func Rotate90CW(src image.Image) *image.Gray {
 	bounds := src.Bounds()
-	w, h := bounds.Max.X, bounds.Max.Y // 296, 128
+	w, h := bounds.Max.X, bounds.Max.Y           // 296, 128
 	dst := image.NewGray(image.Rect(0, 0, h, w)) // 128, 296
 
 	for y := 0; y < h; y++ {
@@ -265,4 +238,60 @@ func formatTokens(tokens int64) string {
 		return fmt.Sprintf("%.1fk", float64(tokens)/1000.0)
 	}
 	return fmt.Sprintf("%d", tokens)
+}
+
+// drawProgressBar draws a small progress bar with a label
+func (r *Renderer) drawProgressBar(img draw.Image, label string, val, max float64, x, y, width int) {
+	// Draw label
+	r.drawText(img, label, x, y+6, r.fontRegular, color.White)
+
+	// Draw bar box outline (height 6, from y to y+6, X from x+30 to x+30+width)
+	barXStart := x + 30
+	barXEnd := barXStart + width
+	r.drawRect(img, barXStart, y, barXEnd, y+6, color.White)
+
+	// Compute ratio
+	ratio := 0.0
+	if max > 0 {
+		ratio = val / max
+	}
+	if ratio > 1.0 {
+		ratio = 1.0
+	} else if ratio < 0.0 {
+		ratio = 0.0
+	}
+
+	fillWidth := int(math.Round(ratio * float64(width-4)))
+	if fillWidth > 0 {
+		r.fillRect(img, barXStart+2, y+2, barXStart+2+fillWidth, y+4, color.White)
+	}
+}
+
+// drawRobotIcon draws a small 13x11 pixel-art robot face in the header
+func (r *Renderer) drawRobotIcon(img draw.Image, x, y int, col color.Color) {
+	// Head box (solid white)
+	for hx := x + 2; hx <= x+10; hx++ {
+		for hy := y + 2; hy <= y+10; hy++ {
+			img.Set(hx, hy, col)
+		}
+	}
+	// Ears
+	for hy := y + 4; hy <= y+7; hy++ {
+		img.Set(x, hy, col)
+		img.Set(x+1, hy, col)
+		img.Set(x+11, hy, col)
+		img.Set(x+12, hy, col)
+	}
+	// Antenna
+	img.Set(x+6, y, col)
+	img.Set(x+6, y+1, col)
+
+	// Eyes (black cutout)
+	img.Set(x+4, y+5, color.Black)
+	img.Set(x+8, y+5, color.Black)
+
+	// Mouth (black cutout)
+	for mx := x + 4; mx <= x+8; mx++ {
+		img.Set(mx, y+8, color.Black)
+	}
 }

@@ -33,5 +33,6 @@ target_include_directories(pico_w_client PRIVATE
 # Uses the thread-safe background architecture for networking reliability
 target_link_libraries(pico_w_client
     pico_stdlib
+    hardware_spi
     pico_cyw43_arch_lwip_threadsafe_background
 )

@@ -2,7 +2,7 @@
 
 An elegant, low-power display system built for the **Raspberry Pi Pico W** and a **Go backend** to monitor real-time AI token usage and daily expenditure on a **Waveshare 2.9" e-Paper display**.
 
-The Go server aggregates costs from OpenAI and Anthropic, generates a sleek dark-themed landscape layout, rotates it 90° to match the screen's portrait SRAM buffer, and packs it into a high-contrast 1-bit stream (4,736 bytes). The Pico W connects to Wi-Fi, retrieves the stream via HTTP, writes it to the display via SPI, and goes to sleep.
+The Go server aggregates costs from Gemini and Anthropic, generates a sleek dark-themed landscape layout, rotates it 90° to match the screen's portrait SRAM buffer, and packs it into a high-contrast 1-bit stream (4,736 bytes). The Pico W connects to Wi-Fi, retrieves the stream via HTTP, writes it to the display via SPI, and goes to sleep.
 
 ---
 
@@ -33,10 +33,9 @@ Ensure you have Go installed on your Mac (`brew install go`).
 ### 2. Environment Configuration
 Create a `.env` file or export the following variables in your terminal:
 ```bash
-export PORT=8080
+export PORT=8296
 export DAILY_BUDGET=10.00         # Your daily spend limit in USD
-export OPENAI_API_KEY="sk-..."    # Needs Admin/Org permissions for cost API
-export OPENAI_ORG_ID="org-..."    # Optional organization ID
+export GEMINI_API_KEY="AIzaSy..."  # Optional Gemini API key
 export ANTHROPIC_API_KEY="sk-ant-admin..." # Needs Admin permissions
 ```
 
@@ -45,7 +44,7 @@ Using the root Makefile:
 ```bash
 make run-server
 ```
-The server will boot on `http://localhost:8080`. 
+The server will boot on `http://localhost:8296`. 
 
 *If no API keys are provided in the environment, the server runs in **Manual/Mock Mode** using sample data.*
 
@@ -59,13 +58,15 @@ The server will boot on `http://localhost:8080`.
 - **`POST /api/update`**: Allows pushing stats manually if you do not have Admin API keys.
   - **Example Request**:
     ```bash
-    curl -X POST http://localhost:8080/api/update \
+    curl -X POST http://localhost:8296/api/update \
       -H "Content-Type: application/json" \
       -d '{
-        "openai_cost": 1.45,
-        "openai_input": 120500,
-        "openai_output": 54000,
+        "gemini_cost": 1.45,
+        "gemini_weekly_cost": 8.75,
+        "gemini_input": 120500,
+        "gemini_output": 54000,
         "claude_cost": 0.95,
+        "claude_weekly_cost": 5.40,
         "claude_input": 23000,
         "claude_output": 8400
       }'

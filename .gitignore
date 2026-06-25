@@ -1,0 +1,23 @@
+# Compiled Go binaries
+server/server_bin
+*_bin
+
+# Pico W Client C/C++ build directory
+pico/build/
+
+# Pico W Client local configuration (contains secrets)
+pico/config.h
+
+# macOS system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE / Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

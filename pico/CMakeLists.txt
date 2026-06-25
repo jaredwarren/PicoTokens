@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 
+# Pico W has the CYW43439 Wi-Fi chip; required for cyw43_arch / lwip headers
+set(PICO_BOARD pico_w CACHE STRING "Board type" FORCE)
+
 # Initialize the Pico SDK import helper
 include(pico_sdk_import.cmake)
 

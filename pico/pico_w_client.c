@@ -233,6 +233,8 @@ int main() {
 
     // Main refresh loop
     while (1) {
+        cyw43_arch_enable_sta_mode();
+
         // 1. Connect to Wi-Fi
         printf("Connecting to Wi-Fi SSID '%s'...\n", WIFI_SSID);
         // Connect with a 15-second timeout
@@ -258,7 +260,7 @@ int main() {
 
             // 3. Disconnect from Wi-Fi to save power
             printf("Disconnecting from Wi-Fi...\n");
-            cyw43_arch_wifi_disconnect();
+            cyw43_arch_disable_sta_mode();
         }
 
         // 4. Wait for the configured update interval

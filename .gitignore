@@ -21,3 +21,5 @@ pico/config.h
 *.swp
 *.swo
 *~
+
+.env

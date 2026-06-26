@@ -25,6 +25,7 @@ type Stats struct {
 	ClaudeWeeklyCost  float64
 	ClaudeInputToken  int64
 	ClaudeOutputToken int64
+	ClaudeResetTime   string
 	LastUpdated       time.Time
 }
 
@@ -57,7 +58,7 @@ func NewRenderer(regPath, boldPath string) (*Renderer, error) {
 
 	// Create faces
 	faceReg, err := opentype.NewFace(regFont, &opentype.FaceOptions{
-		Size:    9,
+		Size:    11,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})
@@ -66,7 +67,7 @@ func NewRenderer(regPath, boldPath string) (*Renderer, error) {
 	}
 
 	faceBold, err := opentype.NewFace(boldFont, &opentype.FaceOptions{
-		Size:    10,
+		Size:    13,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})
@@ -99,38 +100,76 @@ func (r *Renderer) DrawDashboard(s Stats, dailyBudget float64) image.Image {
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
 
 	// 2. Draw Header
-	r.drawRobotIcon(img, 10, 6, color.White)
-	r.drawText(img, "AI TOKENS", 27, 16, r.fontBold, color.White)
+	r.drawRobotIcon(img, 15, 5, color.White)
+	r.drawText(img, "CLAUDE CODE USAGE", 35, 17, r.fontBold, color.White)
 	syncTime := fmt.Sprintf("SYNC: %s", s.LastUpdated.Format("15:04"))
-	r.drawTextRight(img, syncTime, 286, 16, r.fontRegular, color.White)
+	r.drawTextRight(img, syncTime, 281, 17, r.fontRegular, color.White)
 
 	// Header line
-	r.drawLine(img, 10, 22, 286, 22, color.White)
+	r.drawLine(img, 15, 24, 281, 24, color.White)
 
-	// 3. Gemini Card (Left)
-	r.drawText(img, "GEMINI", 15, 40, r.fontBold, color.White)
-
-	r.drawProgressBar(img, "SES", s.GeminiCost, dailyBudget, 15, 56, 85)
-	r.drawProgressBar(img, "WK", s.GeminiWeeklyCost, dailyBudget*7.0, 15, 78, 85)
-
-	inTextGemini := fmt.Sprintf("In:%s Out:%s", formatTokens(s.GeminiInputToken), formatTokens(s.GeminiOutputToken))
-	r.drawText(img, inTextGemini, 15, 106, r.fontRegular, color.White)
-
-	// 4. Middle Divider (Dotted/Dashed effect)
-	for y := 28; y < 116; y += 4 {
-		img.Set(148, y, color.White)
+	// Calculate percentages
+	sessionPct := 0.0
+	if dailyBudget > 0 {
+		sessionPct = (s.ClaudeCost / dailyBudget) * 100.0
+	}
+	if sessionPct > 100.0 {
+		sessionPct = 100.0
 	}
 
-	// 5. Anthropic/Claude Card (Right)
-	r.drawText(img, "CLAUDE", 160, 40, r.fontBold, color.White)
+	weeklyPct := 0.0
+	if dailyBudget > 0 {
+		weeklyPct = (s.ClaudeWeeklyCost / (dailyBudget * 7.0)) * 100.0
+	}
+	if weeklyPct > 100.0 {
+		weeklyPct = 100.0
+	}
 
-	r.drawProgressBar(img, "SES", s.ClaudeCost, dailyBudget, 160, 56, 85)
-	r.drawProgressBar(img, "WK", s.ClaudeWeeklyCost, dailyBudget*7.0, 160, 78, 85)
+	// 3. Session Row
+	r.drawText(img, "SESSION", 15, 43, r.fontBold, color.White)
+	sessionDetail := fmt.Sprintf("%d%%", int(math.Round(sessionPct)))
+	r.drawTextRight(img, sessionDetail, 281, 43, r.fontRegular, color.White)
+	r.drawBar(img, s.ClaudeCost, dailyBudget, 15, 51, 266)
 
-	inTextClaude := fmt.Sprintf("In:%s Out:%s", formatTokens(s.ClaudeInputToken), formatTokens(s.ClaudeOutputToken))
-	r.drawText(img, inTextClaude, 160, 106, r.fontRegular, color.White)
+	// 4. Weekly Row
+	r.drawText(img, "WEEKLY", 15, 78, r.fontBold, color.White)
+	weeklyDetail := fmt.Sprintf("%d%%", int(math.Round(weeklyPct)))
+	r.drawTextRight(img, weeklyDetail, 281, 78, r.fontRegular, color.White)
+	r.drawBar(img, s.ClaudeWeeklyCost, dailyBudget*7.0, 15, 86, 266)
+
+	// 5. Footer Row (Reset times / optional Tokens)
+	resetStr := "--"
+	if s.ClaudeResetTime != "" {
+		resetStr = s.ClaudeResetTime
+	}
+	r.drawText(img, fmt.Sprintf("RESETS: %s", resetStr), 15, 118, r.fontRegular, color.White)
+
+	if s.ClaudeInputToken > 0 || s.ClaudeOutputToken > 0 {
+		inTextClaude := fmt.Sprintf("In:%s Out:%s", formatTokens(s.ClaudeInputToken), formatTokens(s.ClaudeOutputToken))
+		r.drawTextRight(img, inTextClaude, 281, 118, r.fontRegular, color.White)
+	}
 
 	return img
+}
+
+// drawBar draws a wide horizontal progress bar with a clean outline and filled inner area.
+func (r *Renderer) drawBar(img draw.Image, val, max float64, x, y, width int) {
+	r.drawRect(img, x, y, x+width, y+8, color.White)
+
+	ratio := 0.0
+	if max > 0 {
+		ratio = val / max
+	}
+	if ratio > 1.0 {
+		ratio = 1.0
+	} else if ratio < 0.0 {
+		ratio = 0.0
+	}
+
+	fillWidth := int(math.Round(ratio * float64(width-4)))
+	if fillWidth > 0 {
+		r.fillRect(img, x+2, y+2, x+2+fillWidth, y+6, color.White)
+	}
 }
 
 // Rotate90CW rotates a 296x128 image 90 degrees clockwise to 128x296.

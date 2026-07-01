@@ -10,6 +10,7 @@
 #define SERVER_PORT     "8296"           // Port the Go server is listening on
 
 // Refresh Interval
-#define REFRESH_INTERVAL_MIN   15       // How often to update the display (in minutes)
+#define REFRESH_INTERVAL_MIN   15       // How often to update the display on success (in minutes)
+#define RETRY_INTERVAL_MIN     1        // How often to retry the display on connection failure (in minutes)
 
 #endif

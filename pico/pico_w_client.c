@@ -17,6 +17,11 @@
 #define SERVER_IP       "192.168.1.100"
 #define SERVER_PORT     "8296"
 #define REFRESH_INTERVAL_MIN 15
+#define RETRY_INTERVAL_MIN 1
+#endif
+
+#ifndef RETRY_INTERVAL_MIN
+#define RETRY_INTERVAL_MIN 1
 #endif
 
 #define DISPLAY_BUFFER_SIZE 4736
@@ -44,6 +49,9 @@ typedef struct {
 // Global client structure
 static http_client_t client;
 static char last_sync_time[64] = "Never";
+static int64_t sync_epoch = 0;
+static uint64_t sync_local_ms = 0;
+static bool has_epoch_sync = false;
 
 // 5x7 ASCII Font Table (ascii 32 to 126)
 static const uint8_t font5x7[][5] = {
@@ -197,7 +205,7 @@ static void draw_string(uint8_t *buf, int x, int y, const char *str, bool black)
 }
 
 // Render "No Connection" warning screen locally
-static void render_no_connection_screen(uint8_t *buf) {
+static void render_no_connection_screen(uint8_t *buf, const char *attempt_time_str) {
     memset(buf, 0xFF, DISPLAY_BUFFER_SIZE); // Clear to white
 
     // Draw borders
@@ -205,27 +213,32 @@ static void render_no_connection_screen(uint8_t *buf) {
     draw_rect(buf, 7, 7, 288, 120, true);
 
     // Draw warning exclamation box
-    draw_rect(buf, 138, 15, 157, 34, true);
-    draw_line(buf, 147, 19, 147, 26, true);
-    draw_line(buf, 148, 19, 148, 26, true);
-    draw_pixel(buf, 147, 29, false); // false = black
-    draw_pixel(buf, 148, 29, false);
-    draw_pixel(buf, 147, 30, false);
-    draw_pixel(buf, 148, 30, false);
+    draw_rect(buf, 138, 12, 157, 31, true);
+    draw_line(buf, 147, 16, 147, 23, true);
+    draw_line(buf, 148, 16, 148, 23, true);
+    draw_pixel(buf, 147, 26, false); // false = black
+    draw_pixel(buf, 148, 26, false);
+    draw_pixel(buf, 147, 27, false);
+    draw_pixel(buf, 148, 27, false);
 
     // Write centered text lines
     char line1[] = "CONNECTION FAILURE";
     int w1 = strlen(line1) * 6;
-    draw_string(buf, (296 - w1)/2, 48, line1, true);
+    draw_string(buf, (296 - w1)/2, 44, line1, true);
 
     char line2[] = "Could not sync with local server";
     int w2 = strlen(line2) * 6;
-    draw_string(buf, (296 - w2)/2, 68, line2, true);
+    draw_string(buf, (296 - w2)/2, 62, line2, true);
 
     char sync_msg[128];
     snprintf(sync_msg, sizeof(sync_msg), "LAST SYNC: %s", last_sync_time);
     int w3 = strlen(sync_msg) * 6;
-    draw_string(buf, (296 - w3)/2, 88, sync_msg, true);
+    draw_string(buf, (296 - w3)/2, 82, sync_msg, true);
+
+    char retry_msg[128];
+    snprintf(retry_msg, sizeof(retry_msg), "LAST RETRY: %s", attempt_time_str);
+    int w4 = strlen(retry_msg) * 6;
+    draw_string(buf, (296 - w4)/2, 100, retry_msg, true);
 }
 
 // Callbacks for lwIP TCP
@@ -279,6 +292,11 @@ static err_t recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_
                                 strncpy(last_sync_time, client.header_line + 13, sizeof(last_sync_time) - 1);
                                 last_sync_time[sizeof(last_sync_time) - 1] = '\0';
                                 printf("Parsed sync time from header: %s\n", last_sync_time);
+                            } else if (strncmp(client.header_line, "X-Sync-Epoch: ", 14) == 0) {
+                                sync_epoch = strtoll(client.header_line + 14, NULL, 10);
+                                sync_local_ms = to_ms_since_boot(get_absolute_time());
+                                has_epoch_sync = true;
+                                printf("Parsed sync epoch from header: %lld (at uptime %lld ms)\n", (long long)sync_epoch, (long long)sync_local_ms);
                             }
                         }
                         client.header_line_len = 0;
@@ -469,8 +487,24 @@ int main() {
         }
 
         if (!success) {
-            printf("Connection failed. Rendering local error screen to e-Paper...\n");
-            render_no_connection_screen(client.buffer);
+            char attempt_str[64] = "Never (no sync)";
+            if (has_epoch_sync) {
+                uint64_t current_ms = to_ms_since_boot(get_absolute_time());
+                uint64_t elapsed_sec = (current_ms - sync_local_ms) / 1000;
+                time_t attempt_epoch = (time_t)(sync_epoch + elapsed_sec);
+                struct tm *timeinfo = gmtime(&attempt_epoch);
+                if (timeinfo) {
+                    strftime(attempt_str, sizeof(attempt_str), "%b %d %H:%M:%S", timeinfo);
+                }
+            } else {
+                uint64_t current_ms = to_ms_since_boot(get_absolute_time());
+                uint64_t secs = current_ms / 1000;
+                snprintf(attempt_str, sizeof(attempt_str), "Uptime %02d:%02d:%02d", 
+                         (int)(secs / 3600), (int)((secs % 3600) / 60), (int)(secs % 60));
+            }
+
+            printf("Connection failed. Rendering local error screen to e-Paper (Attempt Time: %s)...\n", attempt_str);
+            render_no_connection_screen(client.buffer, attempt_str);
             EPD_2IN9_V2_Init();
             EPD_2IN9_V2_Clear();
             EPD_2IN9_V2_Display(client.buffer);
@@ -478,9 +512,10 @@ int main() {
         }
 
         // 4. Wait for the configured update interval
-        printf("Sleeping for %d minutes...\n", REFRESH_INTERVAL_MIN);
+        int wait_minutes = success ? REFRESH_INTERVAL_MIN : RETRY_INTERVAL_MIN;
+        printf("Sleeping for %d minutes...\n", wait_minutes);
         // Sleep in 1-minute blocks to keep watchdog / output alive if needed
-        for (int i = 0; i < REFRESH_INTERVAL_MIN; i++) {
+        for (int i = 0; i < wait_minutes; i++) {
             sleep_ms(60000); 
         }
     }

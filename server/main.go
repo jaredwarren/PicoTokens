@@ -110,6 +110,7 @@ func handleDisplayBin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(packedBytes)))
+	w.Header().Set("X-Sync-Time", stats.LastUpdated.Format("Jan 02 15:04:05"))
 	w.WriteHeader(http.StatusOK)
 	w.Write(packedBytes)
 	log.Printf("Pico W fetched display.bin (%d bytes) from %s\n", len(packedBytes), r.RemoteAddr)

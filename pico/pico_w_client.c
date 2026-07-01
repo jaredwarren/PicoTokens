@@ -37,10 +37,196 @@ typedef struct {
     int bytes_received;
     bool headers_done;
     int header_search_idx;
+    char header_line[128];
+    int header_line_len;
 } http_client_t;
 
 // Global client structure
 static http_client_t client;
+static char last_sync_time[64] = "Never";
+
+// 5x7 ASCII Font Table (ascii 32 to 126)
+static const uint8_t font5x7[][5] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00}, // (space)
+    {0x00, 0x00, 0x5f, 0x00, 0x00}, // !
+    {0x00, 0x07, 0x00, 0x07, 0x00}, // "
+    {0x14, 0x7f, 0x14, 0x7f, 0x14}, // #
+    {0x24, 0x2a, 0x7f, 0x2a, 0x12}, // $
+    {0x23, 0x13, 0x08, 0x64, 0x62}, // %
+    {0x36, 0x49, 0x55, 0x22, 0x50}, // &
+    {0x00, 0x05, 0x03, 0x00, 0x00}, // '
+    {0x00, 0x1c, 0x22, 0x41, 0x00}, // (
+    {0x00, 0x41, 0x22, 0x1c, 0x00}, // )
+    {0x14, 0x08, 0x3e, 0x08, 0x14}, // *
+    {0x08, 0x08, 0x3e, 0x08, 0x08}, // +
+    {0x00, 0x50, 0x30, 0x00, 0x00}, // ,
+    {0x08, 0x08, 0x08, 0x08, 0x08}, // -
+    {0x00, 0x60, 0x60, 0x00, 0x00}, // .
+    {0x20, 0x10, 0x08, 0x04, 0x02}, // /
+    {0x3e, 0x51, 0x49, 0x45, 0x3e}, // 0
+    {0x00, 0x42, 0x7f, 0x40, 0x00}, // 1
+    {0x42, 0x61, 0x51, 0x49, 0x46}, // 2
+    {0x21, 0x41, 0x45, 0x4b, 0x31}, // 3
+    {0x18, 0x14, 0x12, 0x7f, 0x10}, // 4
+    {0x27, 0x45, 0x45, 0x45, 0x39}, // 5
+    {0x3c, 0x4a, 0x49, 0x49, 0x30}, // 6
+    {0x01, 0x71, 0x09, 0x05, 0x03}, // 7
+    {0x36, 0x49, 0x49, 0x49, 0x36}, // 8
+    {0x06, 0x49, 0x49, 0x29, 0x1e}, // 9
+    {0x00, 0x36, 0x36, 0x00, 0x00}, // :
+    {0x00, 0x56, 0x36, 0x00, 0x00}, // ;
+    {0x08, 0x14, 0x22, 0x41, 0x00}, // <
+    {0x14, 0x14, 0x14, 0x14, 0x14}, // =
+    {0x00, 0x41, 0x22, 0x14, 0x08}, // >
+    {0x02, 0x01, 0x51, 0x09, 0x06}, // ?
+    {0x32, 0x49, 0x79, 0x41, 0x3e}, // @
+    {0x7e, 0x11, 0x11, 0x11, 0x7e}, // A
+    {0x7f, 0x49, 0x49, 0x49, 0x36}, // B
+    {0x3e, 0x41, 0x41, 0x41, 0x22}, // C
+    {0x7f, 0x41, 0x41, 0x22, 0x1c}, // D
+    {0x7f, 0x49, 0x49, 0x49, 0x41}, // E
+    {0x7f, 0x09, 0x09, 0x09, 0x01}, // F
+    {0x3e, 0x41, 0x49, 0x49, 0x7a}, // G
+    {0x7f, 0x08, 0x08, 0x08, 0x7f}, // H
+    {0x00, 0x41, 0x7f, 0x41, 0x00}, // I
+    {0x20, 0x40, 0x41, 0x3f, 0x01}, // J
+    {0x7f, 0x08, 0x14, 0x22, 0x41}, // K
+    {0x7f, 0x40, 0x40, 0x40, 0x40}, // L
+    {0x7f, 0x02, 0x0c, 0x02, 0x7f}, // M
+    {0x7f, 0x04, 0x08, 0x10, 0x7f}, // N
+    {0x3e, 0x41, 0x41, 0x41, 0x3e}, // O
+    {0x7f, 0x09, 0x09, 0x09, 0x06}, // P
+    {0x3e, 0x41, 0x51, 0x21, 0x5e}, // Q
+    {0x7f, 0x09, 0x19, 0x29, 0x46}, // R
+    {0x46, 0x49, 0x49, 0x49, 0x31}, // S
+    {0x01, 0x01, 0x7f, 0x01, 0x01}, // T
+    {0x3f, 0x40, 0x40, 0x40, 0x3f}, // U
+    {0x1f, 0x20, 0x40, 0x20, 0x1f}, // V
+    {0x3f, 0x40, 0x38, 0x40, 0x3f}, // W
+    {0x63, 0x14, 0x08, 0x14, 0x63}, // X
+    {0x07, 0x08, 0x70, 0x08, 0x07}, // Y
+    {0x61, 0x51, 0x49, 0x45, 0x43}, // Z
+    {0x00, 0x7f, 0x41, 0x41, 0x00}, // [
+    {0x02, 0x04, 0x08, 0x10, 0x20}, // \
+    {0x00, 0x41, 0x41, 0x7f, 0x00}, // ]
+    {0x04, 0x02, 0x01, 0x02, 0x04}, // ^
+    {0x40, 0x40, 0x40, 0x40, 0x40}, // _
+    {0x00, 0x01, 0x02, 0x04, 0x00}, // `
+    {0x20, 0x54, 0x54, 0x54, 0x78}, // a
+    {0x7f, 0x48, 0x44, 0x44, 0x38}, // b
+    {0x38, 0x44, 0x44, 0x44, 0x20}, // c
+    {0x38, 0x44, 0x44, 0x48, 0x7f}, // d
+    {0x38, 0x54, 0x54, 0x54, 0x18}, // e
+    {0x08, 0x7e, 0x09, 0x01, 0x02}, // f
+    {0x0c, 0x52, 0x52, 0x52, 0x3e}, // g
+    {0x7f, 0x08, 0x04, 0x04, 0x78}, // h
+    {0x00, 0x44, 0x7d, 0x40, 0x00}, // i
+    {0x20, 0x40, 0x44, 0x3d, 0x00}, // j
+    {0x7f, 0x10, 0x28, 0x44, 0x00}, // k
+    {0x00, 0x41, 0x7f, 0x40, 0x00}, // l
+    {0x7c, 0x04, 0x18, 0x04, 0x78}, // m
+    {0x7c, 0x08, 0x04, 0x04, 0x78}, // n
+    {0x38, 0x44, 0x44, 0x44, 0x38}, // o
+    {0x7c, 0x14, 0x14, 0x14, 0x08}, // p
+    {0x08, 0x14, 0x14, 0x18, 0x7c}, // q
+    {0x7c, 0x08, 0x04, 0x04, 0x08}, // r
+    {0x48, 0x54, 0x54, 0x54, 0x20}, // s
+    {0x04, 0x3f, 0x44, 0x40, 0x20}, // t
+    {0x3c, 0x40, 0x40, 0x20, 0x7c}, // u
+    {0x1c, 0x20, 0x40, 0x20, 0x1c}, // v
+    {0x3c, 0x40, 0x30, 0x40, 0x3c}, // w
+    {0x44, 0x28, 0x10, 0x28, 0x44}, // x
+    {0x0c, 0x50, 0x50, 0x50, 0x3c}, // y
+    {0x44, 0x64, 0x54, 0x4c, 0x44}, // z
+    {0x00, 0x08, 0x36, 0x41, 0x00}, // {
+    {0x00, 0x00, 0x7f, 0x00, 0x00}, // |
+    {0x00, 0x41, 0x36, 0x08, 0x00}, // }
+    {0x08, 0x0c, 0x08, 0x18, 0x08}  // ~
+};
+
+// Draw utilities for 296x128 landscape logical viewport
+static void draw_pixel(uint8_t *buf, int x, int y, bool white) {
+    if (x < 0 || x >= 296 || y < 0 || y >= 128) return;
+    int xp = 127 - y;
+    int yp = x;
+    int offset = yp * 16 + (xp / 8);
+    int bit = 7 - (xp % 8);
+    if (white) {
+        buf[offset] |= (1 << bit);
+    } else {
+        buf[offset] &= ~(1 << bit);
+    }
+}
+
+static void draw_line(uint8_t *buf, int x1, int y1, int x2, int y2, bool black) {
+    if (x1 == x2) { // vertical
+        if (y1 > y2) { int tmp = y1; y1 = y2; y2 = tmp; }
+        for (int y = y1; y <= y2; y++) draw_pixel(buf, x1, y, !black);
+    } else if (y1 == y2) { // horizontal
+        if (x1 > x2) { int tmp = x1; x1 = x2; x2 = tmp; }
+        for (int x = x1; x <= x2; x++) draw_pixel(buf, x, y1, !black);
+    }
+}
+
+static void draw_rect(uint8_t *buf, int x1, int y1, int x2, int y2, bool black) {
+    draw_line(buf, x1, y1, x2, y1, black);
+    draw_line(buf, x1, y2, x2, y2, black);
+    draw_line(buf, x1, y1, x1, y2, black);
+    draw_line(buf, x2, y1, x2, y2, black);
+}
+
+static void draw_char(uint8_t *buf, int x, int y, char c, bool black) {
+    if (c < 32 || c > 126) c = ' ';
+    int char_idx = c - 32;
+    for (int col = 0; col < 5; col++) {
+        uint8_t line = font5x7[char_idx][col];
+        for (int row = 0; row < 7; row++) {
+            if (line & (1 << row)) {
+                draw_pixel(buf, x + col, y + row, !black);
+            }
+        }
+    }
+}
+
+static void draw_string(uint8_t *buf, int x, int y, const char *str, bool black) {
+    while (*str) {
+        draw_char(buf, x, y, *str, black);
+        x += 6;
+        str++;
+    }
+}
+
+// Render "No Connection" warning screen locally
+static void render_no_connection_screen(uint8_t *buf) {
+    memset(buf, 0xFF, DISPLAY_BUFFER_SIZE); // Clear to white
+
+    // Draw borders
+    draw_rect(buf, 5, 5, 290, 122, true);
+    draw_rect(buf, 7, 7, 288, 120, true);
+
+    // Draw warning exclamation box
+    draw_rect(buf, 138, 15, 157, 34, true);
+    draw_line(buf, 147, 19, 147, 26, true);
+    draw_line(buf, 148, 19, 148, 26, true);
+    draw_pixel(buf, 147, 29, false); // false = black
+    draw_pixel(buf, 148, 29, false);
+    draw_pixel(buf, 147, 30, false);
+    draw_pixel(buf, 148, 30, false);
+
+    // Write centered text lines
+    char line1[] = "CONNECTION FAILURE";
+    int w1 = strlen(line1) * 6;
+    draw_string(buf, (296 - w1)/2, 48, line1, true);
+
+    char line2[] = "Could not sync with local server";
+    int w2 = strlen(line2) * 6;
+    draw_string(buf, (296 - w2)/2, 68, line2, true);
+
+    char sync_msg[128];
+    snprintf(sync_msg, sizeof(sync_msg), "LAST SYNC: %s", last_sync_time);
+    int w3 = strlen(sync_msg) * 6;
+    draw_string(buf, (296 - w3)/2, 88, sync_msg, true);
+}
 
 // Callbacks for lwIP TCP
 static void close_client_connection(struct tcp_pcb *tpcb) {
@@ -81,6 +267,23 @@ static err_t recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_
 
             for (int i = 0; i < len; i++) {
                 if (!client.headers_done) {
+                    // Accumulate header line for parsing
+                    if (payload[i] != '\r' && payload[i] != '\n') {
+                        if (client.header_line_len < (int)sizeof(client.header_line) - 1) {
+                            client.header_line[client.header_line_len++] = payload[i];
+                        }
+                    } else if (payload[i] == '\n') {
+                        client.header_line[client.header_line_len] = '\0';
+                        if (client.header_line_len > 0) {
+                            if (strncmp(client.header_line, "X-Sync-Time: ", 13) == 0) {
+                                strncpy(last_sync_time, client.header_line + 13, sizeof(last_sync_time) - 1);
+                                last_sync_time[sizeof(last_sync_time) - 1] = '\0';
+                                printf("Parsed sync time from header: %s\n", last_sync_time);
+                            }
+                        }
+                        client.header_line_len = 0;
+                    }
+
                     // Scan for the double CRLF (\r\n\r\n) indicating end of headers
                     if (client.header_search_idx == 0 && payload[i] == '\r') {
                         client.header_search_idx = 1;
@@ -238,6 +441,7 @@ int main() {
         // 1. Connect to Wi-Fi
         printf("Connecting to Wi-Fi SSID '%s'...\n", WIFI_SSID);
         // Connect with a 15-second timeout
+        bool success = false;
         if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 15000)) {
             printf("Wi-Fi connection failed! Will retry next cycle.\n");
         } else {
@@ -254,6 +458,7 @@ int main() {
                 EPD_2IN9_V2_Sleep();
                 
                 printf("Screen refresh complete!\n");
+                success = true;
             } else {
                 printf("Failed to fetch image buffer from Go server.\n");
             }
@@ -261,6 +466,15 @@ int main() {
             // 3. Disconnect from Wi-Fi to save power
             printf("Disconnecting from Wi-Fi...\n");
             cyw43_arch_disable_sta_mode();
+        }
+
+        if (!success) {
+            printf("Connection failed. Rendering local error screen to e-Paper...\n");
+            render_no_connection_screen(client.buffer);
+            EPD_2IN9_V2_Init();
+            EPD_2IN9_V2_Clear();
+            EPD_2IN9_V2_Display(client.buffer);
+            EPD_2IN9_V2_Sleep();
         }
 
         // 4. Wait for the configured update interval
